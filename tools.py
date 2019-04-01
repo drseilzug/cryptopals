@@ -18,7 +18,7 @@ def xor_bytes(a, b):
 
 
 def arrange_blocks_hex(cipher_hex, blocksize):
-    blocks = [b'']*blocksize
+    blocks = [[b''] for _ in range(blocksize)]
     # split hex string into blocks of 2
     hex_split = re.findall(b'..', cipher_hex)
     for i, byte in enumerate(hex_split):
@@ -28,7 +28,12 @@ def arrange_blocks_hex(cipher_hex, blocksize):
 
 def arrange_blocks(cipher_bytes, blocksize):
     blocks = split_blocks(cipher_bytes, blocksize)
-    return list(itertools.izip_longest(*blocks))
+    out = [[] for _ in range(blocksize)]
+    for i in range(blocksize):
+        for block in blocks:
+            if len(block) > i:
+                out[i].append(block[i])
+    return out
 
 
 def split_blocks(cipher_bytes, blocksize):
