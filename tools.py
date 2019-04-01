@@ -1,4 +1,5 @@
 import re
+import itertools
 from encode import bytes_to_hex, hex_to_bytes
 
 
@@ -27,7 +28,7 @@ def arrange_blocks_hex(cipher_hex, blocksize):
 
 def arrange_blocks(cipher_bytes, blocksize):
     blocks = split_blocks(cipher_bytes, blocksize)
-    return list(zip(*blocks))
+    return list(itertools.izip_longest(*blocks))
 
 
 def split_blocks(cipher_bytes, blocksize):
