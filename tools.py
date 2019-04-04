@@ -18,6 +18,7 @@ def xor_bytes(a, b):
 
 
 def arrange_blocks_hex(cipher_hex, blocksize):
+    """Depricated and probably broken"""
     blocks = [[b''] for _ in range(blocksize)]
     # split hex string into blocks of 2
     hex_split = re.findall(b'..', cipher_hex)
