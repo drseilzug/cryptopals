@@ -9,11 +9,20 @@ def get_rand_bytes(size=16):
 key = get_rand_bytes(16)
 
 
-def sha1_mac(input):
-    return Sha1(key+input).hexdigest()
-print(b"comment1=cooking%20MCs;userdata=foo;comment2=%20like%20a%20pound%20of%20bacon")
-print(len(b"comment1=cooking%20MCs;userdata=foo;comment2=%20like%20a%20pound%20of%20bacon"))
-print(sha1_mac(b"comment1=cooking%20MCs;userdata=foo;comment2=%20like%20a%20pound%20of%20bacon"))
+def sha1_mac(message):
+    return Sha1(key+message).hexdigest()
 
-def validate(message, hash):
-    return sha1_mac(message) == hash
+
+def validate(message, validation_hash):
+    return sha1_mac(message) == validation_hash
+
+
+if __name__ == "__main__":
+    msg = b"comment1=cooking%20MCs;userdata=foo;comment2=%20like%20a%20pound%20of%20bacon"
+    mac = sha1_mac(b"comment1=cooking%20MCs;userdata=foo;comment2=%20like%20a%20pound%20of%20bacon")
+    print(msg, mac)
+    #attack
+    ext = Sha1()
+    ext.init_extension_hex(mac, 16, msg, b";admin=true")
+    new_msg, new_digest = ext.payload()
+    print(validate(new_msg, new_digest))
