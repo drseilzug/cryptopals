@@ -1,24 +1,33 @@
 class Mersenne(object):
-    def __init__(self, seed=5489, w=32):
+    def __init__(self, seed=5489, w=32, mode=0):
         self.word = w
         self.set_params()
 
         self.lower_mask = (1 << self.r) - 1
         self.upper_mask = 1 << self.r
 
-        self.initialize_from_seed(seed)
+        self.initialize_from_seed(seed, mode)
 
-    def initialize_from_seed(self, seed):
-        """ initialize generator from seed"""
+    def initialize_from_seed(self, seed, mode=0):
+        """ initialize generator from seed
+        modes:
+            0 :: reference implementation
+            1 :: python implementation [EXPERIMENTAL]"""
         # TODO: figure out why this does not mimic the behaviour of pythons random.seed()
-        self.state = [0]*self.n
+        self.state = [[] for _ in range(self.n)]
         self.index = self.n
         self.state[0] = seed
-        for i in range(1, self.n):
-            pre_state = self.f * (self.state[i-1] ^ (self.state[i-1] >> (self.word - 2))) + i
-            self.state[i] = self.cut(pre_state)  # cut off excess bits to have a 32/64 bit int
+        if mode == 0:
+            for i in range(1, self.n):
+                pre_state = self.f * (self.state[i-1] ^ (self.state[i-1] >> (self.word - 2))) + i
+                self.state[i] = self.cut(pre_state)  # cut off excess bits to have a 32/64 bit int
+        elif mode == 1:
+            raise NotImplementedError
+        else:
+            raise ValueError("Unknown mode Parameter supplied: {}".format(mode))
 
     def set_params(self):
+        """initialized generator parameters according to the set wordsize. (32 or 64)"""
         if self.word == 32:
             # parameters (for w = 32)
             self.n = 624
@@ -51,11 +60,18 @@ class Mersenne(object):
             raise ValueError("w has to be 32 or 64")
 
     def set_state(self, state, index=0):
+        """Sets an internal state for MT
+        state: list of 624 32bit integers  (or 312 64 bit integers if w=64)
+        index = where to begin inside the state"""
         if len(state) != self.n:
             raise ValueError("State must be a List of ints of length {}".format(self.n))
         else:
             self.state = state
             self.index = index
+
+    def get_state(self):
+        """Returns the internal state of the MT as a tuple (state, index)"""
+        return self.state, self.index
 
     def reverse_state(self, values, repeat=False):
         """Rebuilds the state of a generator from 624 (312 for 64 bit version) consecutive
@@ -64,26 +80,30 @@ class Mersenne(object):
         """
         if len(values) < self.n:
             raise ValueError("Needs list of at least {} consecutive values to build state".format(self.n))
-        values = values[-self.n:]
+        values = values[-self.n:]  # reverses from the last 624 given output values.
         new_state = list(map(self.untemper, values))
         if repeat:
             self.set_state(new_state)
-        if not repeat:
+        else:
             self.set_state(new_state, self.n)  # sets up generator to twist on next call to sync with source gen
 
     def clone_from_function(self, func, repeat=False):
-        """clones an MT generator by calling its get_value function"""
+        """clones an MT generator by repeatedly calling its get_value function"""
         values = [func() for _ in range(self.n)]
         self.reverse_state(values, repeat)
 
     def clone_from_getrandbits(self, func, repeat=False):
+        """Clones an MT generator by repeatedly calling a get_randbits(bitlength) function"""
         self.clone_from_function(lambda: func(self.word), repeat)
 
     def get_value(self):
+        """returns a random value from the generator"""
         if self.index >= self.n:
             self.twist()
         # temper value
-        return self.temper(self.state[self.index])
+        ret_val = self.temper(self.state[self.index])
+        self.index += 1
+        return ret_val
 
     def temper(self, y):
         y ^= y >> self.u & self.d
@@ -91,37 +111,48 @@ class Mersenne(object):
         y ^= y << self.t & self.c
         y ^= y >> self.l
 
-        self.index += 1
+        return self.cut(y)  # i think the cut here is unnecessary but not entirely sure
 
-        return self.cut(y)  # i think the cut here is unneccacary but not entirely sure
+    # def _untemper(self, value):
+    #     """old slow method to untemper"""
+    #     def inv_ls(value, offset, d):
+    #         """ value = y ^ (y << offset & d) ==> calculates y"""
+    #         y = 0
+    #         for i in range(self.word):
+    #             y += (value ^ (y << offset & d)) & (1 << i)
+    #         return y
+    #
+    #     def inv_rs(value, offset, d):
+    #         """ value = y ^ (y >> offset & d) ==> calculates y"""
+    #         y = 0
+    #         for i in range(self.word-1, -1, -1):
+    #             y += (value ^ (y >> offset & d)) & (1 << i)
+    #         return y
+    #     x = inv_rs(value, self.l, (1 << self.word) - 1)
+    #     x = inv_ls(x, self.t, self.c)
+    #     x = inv_ls(x, self.s, self.b)
+    #     x = inv_rs(x, self.u, self.d)
+    #     return x
 
     def untemper(self, value):
-        def inv_ls(value, offset, d):
-            """ value = y ^ (y << offset & d) ==> calculates y"""
-            y = 0
-            for i in range(self.word):
-                y += (value ^ (y << offset & d)) & (1 << i)
-            return y
-
-        def inv_rs(value, offset, d):
-            """ value = y ^ (y >> offset & d) ==> calculates y"""
-            y = 0
-            for i in range(self.word-1, -1, -1):
-                y += (value ^ (y >> offset & d)) & (1 << i)
-            return y
-        x = inv_rs(value, self.l, (1 << self.word) - 1)
-        x = inv_ls(x, self.t, self.c)
-        x = inv_ls(x, self.s, self.b)
-        x = inv_rs(x, self.u, self.d)
-        return x
+        """Inverse of the tempering function"""
+        value ^= value >> self.l
+        value ^= value << self.t & self.c
+        for i in range(7):
+             value ^= value << self.s & self.b
+        for i in range(3):
+             value ^= value >> self.u
+        return value
 
     def get_values(self, n):
-        list = []
+        """return a list of n {}bit values""".format(self.w)
+        value_list = []
         for i in range(n):
-            list.append(self.get_value())
-        return list
+            value_list.append(self.get_value())
+        return value_list
 
     def twist(self):
+        """generates a full state from the current self.state and resets self.index=0"""
         for i in range(self.n):
             x = self.state[i] & self.upper_mask
             x += self.state[(i+1) % self.n] & self.lower_mask
@@ -136,9 +167,9 @@ class Mersenne(object):
         the respective inputs needed for the recursion
         inputs are the values 624, 623 and 227 positions before the desired value in that states list (for 32 bit version)
 
-        Returns it result and dosent touch the internal state of the Object.
+        Returns it result and doesnt touch the internal state of the Object.
 
-        Should work with 64 bit version too by using the respective input vaules according to the 64 bit versions parameters
+        Should work with 64 bit version too by using the respective input values according to the 64 bit versions parameters
         """
         x = v_624 & self.upper_mask
         x += v_623 & self.lower_mask
@@ -162,7 +193,7 @@ class Mersenne(object):
     def getrandbits(self, k):
         """returns k random bits as an int"""
         wc = (k - 1) // self.word + 1
-        wordlist = [0]*wc
+        wordlist = [[] for _ in range(wc)]
         while k > 0:
             value = self.get_value()
             if k < 32:
@@ -176,33 +207,24 @@ class Mersenne(object):
             out += word
         return out
 
-    def temper_image(self):
-        """ returns all possible outputs of the temper function """
-        image = []
-        old_index = self.index
-        for i in range((1 << self.word) - 1):
-            image.append(self.temper(i))
-        self.index = old_index
-        return image
-
 
 if __name__ == '__main__':
     import random
     import time
 
     def test_vs_rand_buildin_bits(n):
-        seed = int(time.time())
+        #seed = int(time.time())
         gen = Mersenne()
-        random.seed(seed)
+        #random.seed(seed)
         gen.clone_from_getrandbits(random.getrandbits)
         g_bits = gen.getrandbits(n)
         r_bits = random.getrandbits(n)
         return g_bits == r_bits
 
     def test_vs_rand_buildin_dbl(n):
-        seed = int(time.time())
+        #seed = int(time.time())
         gen = Mersenne()
-        random.seed(seed)
+        #random.seed(seed)
         gen.clone_from_getrandbits(random.getrandbits)
         g_dbl_list = [gen.get_double() for _ in range(n)]
         r_dbl_list = [random.random() for _ in range(n)]
